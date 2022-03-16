@@ -214,6 +214,78 @@ func (m *Machine) Delete() error {
 
 var mutex sync.Mutex
 
+// ListMachines lists all registered machines.
+func ListMachines() ([]*Machine, error) {
+	out, err := Manage().runOut("list", "vms")
+	if err != nil {
+		return nil, err
+	}
+	ms := []*Machine{}
+	s := bufio.NewScanner(strings.NewReader(out))
+	for s.Scan() {
+		res := reVMNameUUID.FindStringSubmatch(s.Text())
+		if res == nil {
+			continue
+		}
+		m, err := GetMachine(res[1])
+		if err != nil {
+			// Sometimes a VM is listed but not available, so we need to handle this.
+			if err == ErrMachineNotExist {
+				continue
+			} else {
+				return nil, err
+			}
+		}
+		ms = append(ms, m)
+	}
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+	return ms, nil
+}
+
+// CreateMachine creates a new machine. If basefolder is empty, use default.
+func CreateMachine(name, basefolder string) (*Machine, error) {
+	if name == "" {
+		return nil, fmt.Errorf("machine name is empty")
+	}
+
+	// Check if a machine with the given name already exists.
+	ms, err := ListMachines()
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range ms {
+		if m.Name == name {
+			return nil, ErrMachineExist
+		}
+	}
+
+	// Create and register the machine.
+	args := []string{"createvm", "--name", name, "--register"}
+	if basefolder != "" {
+		args = append(args, "--basefolder", basefolder)
+	}
+	if err = Manage().run(args...); err != nil {
+		return nil, err
+	}
+
+	m, err := GetMachine(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+// CloneMachine clones the given machine name into a new one.
+func CloneMachine(baseImageName string, newImageName string, register bool) error {
+	if register {
+		return Manage().run("clonevm", baseImageName, "--name", newImageName, "--register")
+	}
+	return Manage().run("clonevm", baseImageName, "--name", newImageName)
+}
+
 // GetMachine finds a machine by its name or UUID.
 func GetMachine(id string) (*Machine, error) {
 	/* There is a strage behavior where running multiple instances of
@@ -301,70 +373,6 @@ func GetMachine(id string) (*Machine, error) {
 	if err := s.Err(); err != nil {
 		return nil, err
 	}
-	return m, nil
-}
-
-// ListMachines lists all registered machines.
-func ListMachines() ([]*Machine, error) {
-	out, err := Manage().runOut("list", "vms")
-	if err != nil {
-		return nil, err
-	}
-	ms := []*Machine{}
-	s := bufio.NewScanner(strings.NewReader(out))
-	for s.Scan() {
-		res := reVMNameUUID.FindStringSubmatch(s.Text())
-		if res == nil {
-			continue
-		}
-		m, err := GetMachine(res[1])
-		if err != nil {
-			// Sometimes a VM is listed but not available, so we need to handle this.
-			if err == ErrMachineNotExist {
-				continue
-			} else {
-				return nil, err
-			}
-		}
-		ms = append(ms, m)
-	}
-	if err := s.Err(); err != nil {
-		return nil, err
-	}
-	return ms, nil
-}
-
-// CreateMachine creates a new machine. If basefolder is empty, use default.
-func CreateMachine(name, basefolder string) (*Machine, error) {
-	if name == "" {
-		return nil, fmt.Errorf("machine name is empty")
-	}
-
-	// Check if a machine with the given name already exists.
-	ms, err := ListMachines()
-	if err != nil {
-		return nil, err
-	}
-	for _, m := range ms {
-		if m.Name == name {
-			return nil, ErrMachineExist
-		}
-	}
-
-	// Create and register the machine.
-	args := []string{"createvm", "--name", name, "--register"}
-	if basefolder != "" {
-		args = append(args, "--basefolder", basefolder)
-	}
-	if err = Manage().run(args...); err != nil {
-		return nil, err
-	}
-
-	m, err := GetMachine(name)
-	if err != nil {
-		return nil, err
-	}
-
 	return m, nil
 }
 
@@ -509,10 +517,27 @@ func (m *Machine) DeleteExtraData(key string) error {
 	return Manage().run("setextradata", m.Name, key)
 }
 
-// CloneMachine clones the given machine name into a new one.
-func CloneMachine(baseImageName string, newImageName string, register bool) error {
-	if register {
-		return Manage().run("clonevm", baseImageName, "--name", newImageName, "--register")
-	}
-	return Manage().run("clonevm", baseImageName, "--name", newImageName)
+// ListSnapshot
+func (m *Machine) ListSnapshot(name string) error {
+	return Manage().run("snapshot", m.Name, "list")
+}
+
+// TakeSnapshot
+func (m *Machine) TakeSnapshot(name string) error {
+	return Manage().run("snapshot", m.Name, "take", name)
+}
+
+// DeleteSnapshot
+func (m *Machine) DeleteSnapshot(name string) error {
+	return Manage().run("snapshot", m.Name, "delete", name)
+}
+
+// RestoreSnapshot
+func (m *Machine) RestoreSnapshot(name string) error {
+	return Manage().run("snapshot", m.Name, "restore", name)
+}
+
+// RestoreCurrentSnapshot
+func (m *Machine) RestoreCurrentSnapshot(name string) error {
+	return Manage().run("snapshot", m.Name, "restorecurrent")
 }
