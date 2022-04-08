@@ -99,6 +99,7 @@ func (vbcmd command) run(args ...string) error {
 		if err != nil {
 			return err
 		}
+		defer session.Close()
 
 		if Verbose {
 			session.Stdout = os.Stdout
@@ -132,6 +133,7 @@ func (vbcmd command) runOut(args ...string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		defer session.Close()
 
 		if Verbose {
 			session.Stderr = os.Stderr
@@ -167,6 +169,8 @@ func (vbcmd command) runOutErr(args ...string) (string, string, error) {
 		if err != nil {
 			return "", "", err
 		}
+		defer session.Close()
+
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
 		session.Stdout = &stdout
