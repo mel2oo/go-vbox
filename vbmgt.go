@@ -1,16 +1,22 @@
 package vbox
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 var (
 	manage Command
+	client *ssh.Client
 )
 
 var (
@@ -32,14 +38,16 @@ func Manage() Command {
 	}
 
 	if vbprog, err := lookupVBoxProgram("VBoxManage"); err == nil {
-		manage = command{program: vbprog, sudoer: sudoer, guest: false}
+		manage = command{program: vbprog, sudoer: sudoer, guest: false, remote: false}
 	} else if vbprog, err := lookupVBoxProgram("VBoxControl"); err == nil {
-		manage = command{program: vbprog, sudoer: sudoer, guest: true}
+		manage = command{program: vbprog, sudoer: sudoer, guest: true, remote: false}
+	} else if client != nil {
+		manage = command{program: "VBoxManage", sudoer: sudoer, guest: false, remote: true}
 	} else {
-		// Did not find a VirtualBox management command
-		manage = command{program: "false", sudoer: false, guest: false}
+		manage = command{program: "false", sudoer: false, guest: false, remote: false}
 	}
 	Debug("manage: '%+v'", manage)
+
 	return manage
 }
 
@@ -79,4 +87,32 @@ func isSudoer() (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func Connect(user, password, host string, port int) error {
+	var (
+		auth         []ssh.AuthMethod
+		addr         string
+		clientConfig *ssh.ClientConfig
+		err          error
+	)
+	// get auth method
+	auth = make([]ssh.AuthMethod, 0)
+	auth = append(auth, ssh.Password(password))
+
+	clientConfig = &ssh.ClientConfig{
+		User:    user,
+		Auth:    auth,
+		Timeout: 30 * time.Second,
+		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			return nil
+		},
+	}
+
+	// connet to ssh
+	addr = fmt.Sprintf("%s:%d", host, port)
+
+	client, err = ssh.Dial("tcp", addr, clientConfig)
+
+	return err
 }

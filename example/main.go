@@ -7,6 +7,10 @@ import (
 )
 
 func main() {
+	if err := vbox.Connect("root", "root", "10.20.53.139", 22); err != nil {
+		return
+	}
+
 	machines, err := vbox.ListMachines()
 	if err != nil {
 		return

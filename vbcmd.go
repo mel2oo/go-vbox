@@ -3,9 +3,11 @@ package vbox
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 type option func(Command)
@@ -19,6 +21,7 @@ type Command interface {
 	run(args ...string) error
 	runOut(args ...string) (string, error)
 	runOutErr(args ...string) (string, string, error)
+	// a()
 }
 
 var (
@@ -37,6 +40,7 @@ type command struct {
 	sudoer  bool // Is current user a sudoer?
 	sudo    bool // Is current command expected to be run under sudo?
 	guest   bool
+	remote  bool
 }
 
 func (vbcmd command) setOpts(opts ...option) Command {
@@ -78,48 +82,101 @@ func (vbcmd command) prepare(args []string) *exec.Cmd {
 
 func (vbcmd command) run(args ...string) error {
 	defer vbcmd.setOpts(sudo(false))
-	cmd := vbcmd.prepare(args)
-	if Verbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	if err := cmd.Run(); err != nil {
-		if ee, ok := err.(*exec.Error); ok && ee == exec.ErrNotFound {
-			return ErrCommandNotFound
+	if !vbcmd.remote {
+		cmd := vbcmd.prepare(args)
+		if Verbose {
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
 		}
-		return err
+		if err := cmd.Run(); err != nil {
+			if ee, ok := err.(*exec.Error); ok && ee == exec.ErrNotFound {
+				return ErrCommandNotFound
+			}
+			return err
+		}
+	} else {
+		session, err := client.NewSession()
+		if err != nil {
+			return err
+		}
+
+		if Verbose {
+			session.Stdout = os.Stdout
+			session.Stderr = os.Stderr
+		}
+
+		cmdline := fmt.Sprintf("%s %s", vbcmd.program, strings.Join(args, " "))
+		return session.Run(cmdline)
 	}
+
 	return nil
 }
 
 func (vbcmd command) runOut(args ...string) (string, error) {
 	defer vbcmd.setOpts(sudo(false))
-	cmd := vbcmd.prepare(args)
-	if Verbose {
-		cmd.Stderr = os.Stderr
-	}
-
-	b, err := cmd.Output()
-	if err != nil {
-		if ee, ok := err.(*exec.Error); ok && ee == exec.ErrNotFound {
-			err = ErrCommandNotFound
+	if !vbcmd.remote {
+		cmd := vbcmd.prepare(args)
+		if Verbose {
+			cmd.Stderr = os.Stderr
 		}
+
+		b, err := cmd.Output()
+		if err != nil {
+			if ee, ok := err.(*exec.Error); ok && ee == exec.ErrNotFound {
+				err = ErrCommandNotFound
+			}
+		}
+		return string(b), err
+	} else {
+		session, err := client.NewSession()
+		if err != nil {
+			return "", err
+		}
+
+		if Verbose {
+			session.Stderr = os.Stderr
+		}
+
+		cmdline := fmt.Sprintf("%s %s", vbcmd.program, strings.Join(args, " "))
+		b, err := session.Output(cmdline)
+		if err != nil {
+			return "", err
+		}
+
+		return string(b), err
 	}
-	return string(b), err
 }
 
 func (vbcmd command) runOutErr(args ...string) (string, string, error) {
 	defer vbcmd.setOpts(sudo(false))
-	cmd := vbcmd.prepare(args)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		if ee, ok := err.(*exec.Error); ok && ee == exec.ErrNotFound {
-			err = ErrCommandNotFound
+	if !vbcmd.remote {
+		cmd := vbcmd.prepare(args)
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		if err != nil {
+			if ee, ok := err.(*exec.Error); ok && ee == exec.ErrNotFound {
+				err = ErrCommandNotFound
+			}
 		}
+		return stdout.String(), stderr.String(), err
+	} else {
+		session, err := client.NewSession()
+		if err != nil {
+			return "", "", err
+		}
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		session.Stdout = &stdout
+		session.Stderr = &stderr
+
+		cmdline := fmt.Sprintf("%s %s", vbcmd.program, strings.Join(args, " "))
+		if err := session.Run(cmdline); err != nil {
+			return "", "", err
+		}
+
+		return stdout.String(), stderr.String(), err
 	}
-	return stdout.String(), stderr.String(), err
 }
