@@ -26,6 +26,8 @@ const (
 	Saved = MachineState("saved")
 	// Aborted is a MachineState value.
 	Aborted = MachineState("aborted")
+	// Stopping is a MachineState value.
+	Stopping = MachineState("stopping")
 )
 
 // Flag is an active VM configuration toggle
@@ -110,6 +112,8 @@ func (m *Machine) Start() error {
 		args = []string{"controlvm", m.Name, "resume"}
 	case Poweroff, Saved, Aborted:
 		args = []string{"startvm", m.Name, "--type", "headless"}
+	case Stopping:
+		args = []string{"startvm", m.Name, "--type", "emergencystop"}
 	}
 
 	_, msg, err := Run(context.Background(), args...)
