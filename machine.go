@@ -28,6 +28,8 @@ const (
 	Aborted = MachineState("aborted")
 	// Stopping is a MachineState value.
 	Stopping = MachineState("stopping")
+	// Gurumeditation
+	Gurumeditation = MachineState("gurumeditation")
 )
 
 // Flag is an active VM configuration toggle
@@ -114,6 +116,14 @@ func (m *Machine) Start() error {
 		args = []string{"startvm", m.Name, "--type", "headless"}
 	case Stopping:
 		args = []string{"startvm", m.Name, "--type", "emergencystop"}
+	case Gurumeditation:
+		args = []string{"startvm", m.Name, "--type", "emergencystop"}
+		_, msg, err := Run(context.Background(), args...)
+		if err != nil {
+			return errors.New(msg)
+		}
+
+		args = []string{"startvm", m.Name, "--type", "headless"}
 	}
 
 	_, msg, err := Run(context.Background(), args...)
