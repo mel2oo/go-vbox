@@ -22,7 +22,7 @@ var (
 // SetGuestProperty writes a VirtualBox guestproperty to the given value.
 func SetGuestProperty(vm string, prop string, val string) error {
 	if manage.isGuest() {
-		return manage.setOpts(sudo(true)).run("guestproperty", "set", prop, val)
+		return manage.setSudo(true).run("guestproperty", "set", prop, val)
 	}
 	return manage.run("guestproperty", "set", vm, prop, val)
 }
@@ -32,7 +32,7 @@ func GetGuestProperty(vm string, prop string) (string, error) {
 	var out string
 	var err error
 	if manage.isGuest() {
-		out, err = manage.setOpts(sudo(true)).runOut("guestproperty", "get", prop)
+		out, err = manage.setSudo(true).runOut("guestproperty", "get", prop)
 	} else {
 		out, err = manage.runOut("guestproperty", "get", vm, prop)
 	}
@@ -61,7 +61,7 @@ func WaitGuestProperty(vm string, prop string) (string, string, error) {
 	var err error
 	Debug("WaitGuestProperty(): wait on '%s'", prop)
 	if manage.isGuest() {
-		_, err = manage.setOpts(sudo(true)).runOut("guestproperty", "wait", prop)
+		_, err = manage.setSudo(true).runOut("guestproperty", "wait", prop)
 		if err != nil {
 			return "", "", err
 		}
@@ -130,7 +130,7 @@ func WaitGuestProperties(vm string, propPattern string, done chan bool, wg *sync
 // DeleteGuestProperty deletes a VirtualBox guestproperty.
 func DeleteGuestProperty(vm string, prop string) error {
 	if manage.isGuest() {
-		return manage.setOpts(sudo(true)).run("guestproperty", "delete", prop)
+		return manage.setSudo(true).run("guestproperty", "delete", prop)
 	}
 	return manage.run("guestproperty", "delete", vm, prop)
 }

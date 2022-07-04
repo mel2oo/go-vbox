@@ -8,6 +8,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 var (
@@ -82,12 +83,9 @@ func isSudoer() (bool, error) {
 	return false, nil
 }
 
-func (vbcmd command) setOpts(opts ...option) Command {
-	var cmd Command = &vbcmd
-	for _, opt := range opts {
-		opt(cmd)
-	}
-	return cmd
+func (vbcmd command) setSudo(subo bool) Command {
+	vbcmd.sudo = subo
+	return vbcmd
 }
 
 func (vbcmd command) isGuest() bool {
@@ -112,7 +110,7 @@ func (vbcmd command) prepare(args []string) *exec.Cmd {
 }
 
 func (vbcmd command) run(args ...string) error {
-	defer vbcmd.setOpts(sudo(false))
+	defer vbcmd.setSudo(false)
 
 	cmd := vbcmd.prepare(args)
 	if Verbose {
@@ -130,7 +128,7 @@ func (vbcmd command) run(args ...string) error {
 }
 
 func (vbcmd command) runOut(args ...string) (string, error) {
-	defer vbcmd.setOpts(sudo(false))
+	defer vbcmd.setSudo(false)
 
 	cmd := vbcmd.prepare(args)
 	if Verbose {
@@ -146,8 +144,25 @@ func (vbcmd command) runOut(args ...string) (string, error) {
 	return string(b), err
 }
 
+func (vbcmd command) rrunOut(cmdline string) (string, error) {
+	defer vbcmd.setSudo(false)
+
+	cmd := vbcmd.prepare(strings.Split(cmdline, " "))
+	if Verbose {
+		cmd.Stderr = os.Stderr
+	}
+
+	b, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.Error); ok && ee == exec.ErrNotFound {
+			err = ErrCommandNotFound
+		}
+	}
+	return string(b), err
+}
+
 func (vbcmd command) runOutErr(args ...string) (string, string, error) {
-	defer vbcmd.setOpts(sudo(false))
+	defer vbcmd.setSudo(false)
 
 	cmd := vbcmd.prepare(args)
 	var stdout bytes.Buffer

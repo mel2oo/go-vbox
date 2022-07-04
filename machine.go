@@ -131,6 +131,18 @@ func (m *Machine) Start(cpuset string) error {
 		return errors.New(msg)
 	}
 
+	pid, err := manage.rrunOut(fmt.Sprintf("ps aux | grep VBoxHeadless | grep -v \"grep\" | grep \" %s\" | awk '{print $2}'", m.Name))
+	if err != nil {
+		return err
+	}
+
+	pid = strings.TrimSpace(pid)
+
+	_, err = manage.rrunOut(fmt.Sprintf("taskset -apc %s %s > /dev/null", cpuset, pid))
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

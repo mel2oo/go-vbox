@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	if _, err := vbox.NewSSHCmd("root", "root", "10.20.53.139", 22); err != nil {
+	if _, err := vbox.NewSSHCmd("root", "Dbapp@2121", "10.20.152.15", 22); err != nil {
 		return
 	}
 
@@ -18,5 +18,8 @@ func main() {
 
 	for _, m := range machines {
 		fmt.Println(m.Name)
+		if m.Name == "win7_64_1" {
+			m.Start("11")
+		}
 	}
 }

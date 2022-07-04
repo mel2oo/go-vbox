@@ -56,12 +56,9 @@ func NewSSHCmd(user, password, host string, port int) (Command, error) {
 	return manage, nil
 }
 
-func (s *sshcmd) setOpts(opts ...option) Command {
-	var cmd Command = s
-	for _, opt := range opts {
-		opt(cmd)
-	}
-	return cmd
+func (s *sshcmd) setSudo(sudo bool) Command {
+	s.sudo = sudo
+	return s
 }
 
 func (s *sshcmd) isGuest() bool {
@@ -73,7 +70,7 @@ func (s *sshcmd) path() string {
 }
 
 func (s *sshcmd) run(args ...string) error {
-	defer s.setOpts(sudo(false))
+	defer s.setSudo(false)
 
 	session, err := s.client.NewSession()
 	if err != nil {
@@ -91,7 +88,7 @@ func (s *sshcmd) run(args ...string) error {
 }
 
 func (s *sshcmd) runOut(args ...string) (string, error) {
-	defer s.setOpts(sudo(false))
+	defer s.setSudo(false)
 
 	session, err := s.client.NewSession()
 	if err != nil {
@@ -112,8 +109,27 @@ func (s *sshcmd) runOut(args ...string) (string, error) {
 	return string(b), err
 }
 
+func (s *sshcmd) rrunOut(cmdline string) (string, error) {
+	session, err := s.client.NewSession()
+	if err != nil {
+		return "", err
+	}
+	defer session.Close()
+
+	if Verbose {
+		session.Stderr = os.Stderr
+	}
+
+	b, err := session.Output(cmdline)
+	if err != nil {
+		return "", err
+	}
+
+	return string(b), err
+}
+
 func (s *sshcmd) runOutErr(args ...string) (string, string, error) {
-	defer s.setOpts(sudo(false))
+	defer s.setSudo(false)
 
 	session, err := s.client.NewSession()
 	if err != nil {
