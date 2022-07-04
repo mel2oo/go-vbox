@@ -106,7 +106,7 @@ func (m *Machine) Refresh() error {
 }
 
 // Start the machine, and return the underlying error when unable to do so.
-func (m *Machine) Start(cpuset string) error {
+func (m *Machine) Start() error {
 	var args []string
 
 	switch m.State {
@@ -131,18 +131,6 @@ func (m *Machine) Start(cpuset string) error {
 		return errors.New(msg)
 	}
 
-	pid, err := manage.rrunOut(fmt.Sprintf("ps aux | grep VBoxHeadless | grep -v \"grep\" | grep \" %s\" | awk '{print $2}'", m.Name))
-	if err != nil {
-		return err
-	}
-
-	pid = strings.TrimSpace(pid)
-
-	_, err = manage.rrunOut(fmt.Sprintf("taskset -apc %s %s > /dev/null", cpuset, pid))
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -155,7 +143,7 @@ func (m *Machine) DisconnectSerialPort(portNumber int) error {
 func (m *Machine) Save() error {
 	switch m.State {
 	case Paused:
-		if err := m.Start(""); err != nil {
+		if err := m.Start(); err != nil {
 			return err
 		}
 	case Poweroff, Aborted, Saved:
@@ -179,7 +167,7 @@ func (m *Machine) Stop() error {
 	case Poweroff, Aborted, Saved:
 		return nil
 	case Paused:
-		if err := m.Start(""); err != nil {
+		if err := m.Start(); err != nil {
 			return err
 		}
 	}
@@ -202,7 +190,7 @@ func (m *Machine) Poweroff() error {
 	case Poweroff, Aborted, Saved:
 		return nil
 	case Stopping, Gurumeditation:
-		if err := m.Start(""); err != nil {
+		if err := m.Start(); err != nil {
 			return err
 		}
 	}
@@ -210,24 +198,24 @@ func (m *Machine) Poweroff() error {
 }
 
 // Restart gracefully restarts the machine.
-func (m *Machine) Restart(cpuset string) error {
+func (m *Machine) Restart() error {
 	switch m.State {
 	case Paused, Saved:
-		if err := m.Start(cpuset); err != nil {
+		if err := m.Start(); err != nil {
 			return err
 		}
 	}
 	if err := m.Stop(); err != nil {
 		return err
 	}
-	return m.Start(cpuset)
+	return m.Start()
 }
 
 // Reset forcefully restarts the machine. State is lost and might corrupt the disk image.
 func (m *Machine) Reset() error {
 	switch m.State {
 	case Paused, Saved:
-		if err := m.Start(""); err != nil {
+		if err := m.Start(); err != nil {
 			return err
 		}
 	}
@@ -570,4 +558,19 @@ func (m *Machine) RestoreSnapshot(name string) error {
 // RestoreCurrentSnapshot
 func (m *Machine) RestoreCurrentSnapshot(name string) error {
 	return manage.run("snapshot", m.Name, "restorecurrent")
+}
+
+func (m *Machine) BindCpu(cpuset string) error {
+	pid, err := manage.rrunOut(fmt.Sprintf("ps aux | grep VBoxHeadless | grep -v \"grep\" | grep \" %s\" | awk '{print $2}'", m.Name))
+	if err != nil {
+		return err
+	}
+	pid = strings.TrimSpace(pid)
+
+	_, err = manage.rrunOut(fmt.Sprintf("taskset -apc %s %s > /dev/null", cpuset, pid))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

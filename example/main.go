@@ -19,7 +19,7 @@ func main() {
 	for _, m := range machines {
 		fmt.Println(m.Name)
 		if m.Name == "win7_64_1" {
-			m.Start("11")
+			m.Start()
 		}
 	}
 }
