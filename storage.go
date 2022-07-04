@@ -81,5 +81,5 @@ const (
 
 // CloneHD virtual harddrive
 func CloneHD(input, output string) error {
-	return Manage().run("clonehd", input, output)
+	return manage.run("clonehd", input, output)
 }

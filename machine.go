@@ -106,7 +106,7 @@ func (m *Machine) Refresh() error {
 }
 
 // Start the machine, and return the underlying error when unable to do so.
-func (m *Machine) Start() error {
+func (m *Machine) Start(cpuset string) error {
 	var args []string
 
 	switch m.State {
@@ -136,20 +136,20 @@ func (m *Machine) Start() error {
 
 // DisconnectSerialPort sets given serial port to disconnected.
 func (m *Machine) DisconnectSerialPort(portNumber int) error {
-	return Manage().run("modifyvm", m.Name, fmt.Sprintf("--uartmode%d", portNumber), "disconnected")
+	return manage.run("modifyvm", m.Name, fmt.Sprintf("--uartmode%d", portNumber), "disconnected")
 }
 
 // Save suspends the machine and saves its state to disk.
 func (m *Machine) Save() error {
 	switch m.State {
 	case Paused:
-		if err := m.Start(); err != nil {
+		if err := m.Start(""); err != nil {
 			return err
 		}
 	case Poweroff, Aborted, Saved:
 		return nil
 	}
-	return Manage().run("controlvm", m.Name, "savestate")
+	return manage.run("controlvm", m.Name, "savestate")
 }
 
 // Pause pauses the execution of the machine.
@@ -158,7 +158,7 @@ func (m *Machine) Pause() error {
 	case Paused, Poweroff, Aborted, Saved:
 		return nil
 	}
-	return Manage().run("controlvm", m.Name, "pause")
+	return manage.run("controlvm", m.Name, "pause")
 }
 
 // Stop gracefully stops the machine.
@@ -167,13 +167,13 @@ func (m *Machine) Stop() error {
 	case Poweroff, Aborted, Saved:
 		return nil
 	case Paused:
-		if err := m.Start(); err != nil {
+		if err := m.Start(""); err != nil {
 			return err
 		}
 	}
 
 	for m.State != Poweroff { // busy wait until the machine is stopped
-		if err := Manage().run("controlvm", m.Name, "acpipowerbutton"); err != nil {
+		if err := manage.run("controlvm", m.Name, "acpipowerbutton"); err != nil {
 			return err
 		}
 		time.Sleep(1 * time.Second)
@@ -189,33 +189,37 @@ func (m *Machine) Poweroff() error {
 	switch m.State {
 	case Poweroff, Aborted, Saved:
 		return nil
+	case Stopping, Gurumeditation:
+		if err := m.Start(""); err != nil {
+			return err
+		}
 	}
-	return Manage().run("controlvm", m.Name, "poweroff")
+	return manage.run("controlvm", m.Name, "poweroff")
 }
 
 // Restart gracefully restarts the machine.
-func (m *Machine) Restart() error {
+func (m *Machine) Restart(cpuset string) error {
 	switch m.State {
 	case Paused, Saved:
-		if err := m.Start(); err != nil {
+		if err := m.Start(cpuset); err != nil {
 			return err
 		}
 	}
 	if err := m.Stop(); err != nil {
 		return err
 	}
-	return m.Start()
+	return m.Start(cpuset)
 }
 
 // Reset forcefully restarts the machine. State is lost and might corrupt the disk image.
 func (m *Machine) Reset() error {
 	switch m.State {
 	case Paused, Saved:
-		if err := m.Start(); err != nil {
+		if err := m.Start(""); err != nil {
 			return err
 		}
 	}
-	return Manage().run("controlvm", m.Name, "reset")
+	return manage.run("controlvm", m.Name, "reset")
 }
 
 // Delete deletes the machine and associated disk images.
@@ -223,14 +227,14 @@ func (m *Machine) Delete() error {
 	if err := m.Poweroff(); err != nil {
 		return err
 	}
-	return Manage().run("unregistervm", m.Name, "--delete")
+	return manage.run("unregistervm", m.Name, "--delete")
 }
 
 var mutex sync.Mutex
 
 // ListMachines lists all registered machines.
 func ListMachines() ([]*Machine, error) {
-	out, err := Manage().runOut("list", "vms")
+	out, err := manage.runOut("list", "vms")
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +284,7 @@ func CreateMachine(name, basefolder string) (*Machine, error) {
 	if basefolder != "" {
 		args = append(args, "--basefolder", basefolder)
 	}
-	if err = Manage().run(args...); err != nil {
+	if err = manage.run(args...); err != nil {
 		return nil, err
 	}
 
@@ -295,9 +299,9 @@ func CreateMachine(name, basefolder string) (*Machine, error) {
 // CloneMachine clones the given machine name into a new one.
 func CloneMachine(baseImageName string, newImageName string, register bool) error {
 	if register {
-		return Manage().run("clonevm", baseImageName, "--name", newImageName, "--register")
+		return manage.run("clonevm", baseImageName, "--name", newImageName, "--register")
 	}
-	return Manage().run("clonevm", baseImageName, "--name", newImageName)
+	return manage.run("clonevm", baseImageName, "--name", newImageName)
 }
 
 // GetMachine finds a machine by its name or UUID.
@@ -308,7 +312,7 @@ func GetMachine(id string) (*Machine, error) {
 	Note if you are running multiple process of go-virtualbox or 'showvminfo'
 	in the command line side by side, this not gonna work. */
 	mutex.Lock()
-	stdout, stderr, err := Manage().runOutErr("showvminfo", id, "--machinereadable")
+	stdout, stderr, err := manage.runOutErr("showvminfo", id, "--machinereadable")
 	mutex.Unlock()
 	if err != nil {
 		if reMachineNotFound.FindString(stderr) != "" {
@@ -440,7 +444,7 @@ func (m *Machine) Modify() error {
 		}
 	}
 
-	if err := Manage().run(args...); err != nil {
+	if err := manage.run(args...); err != nil {
 		return err
 	}
 	return m.Refresh()
@@ -448,13 +452,13 @@ func (m *Machine) Modify() error {
 
 // AddNATPF adds a NAT port forarding rule to the n-th NIC with the given name.
 func (m *Machine) AddNATPF(n int, name string, rule PFRule) error {
-	return Manage().run("controlvm", m.Name, fmt.Sprintf("natpf%d", n),
+	return manage.run("controlvm", m.Name, fmt.Sprintf("natpf%d", n),
 		fmt.Sprintf("%s,%s", name, rule.Format()))
 }
 
 // DelNATPF deletes the NAT port forwarding rule with the given name from the n-th NIC.
 func (m *Machine) DelNATPF(n int, name string) error {
-	return Manage().run("controlvm", m.Name, fmt.Sprintf("natpf%d", n), "delete", name)
+	return manage.run("controlvm", m.Name, fmt.Sprintf("natpf%d", n), "delete", name)
 }
 
 // SetNIC set the n-th NIC.
@@ -470,7 +474,7 @@ func (m *Machine) SetNIC(n int, nic NIC) error {
 	} else if nic.Network == NICNetBridged {
 		args = append(args, fmt.Sprintf("--bridgeadapter%d", n), nic.HostInterface)
 	}
-	return Manage().run(args...)
+	return manage.run(args...)
 }
 
 // AddStorageCtl adds a storage controller with the given name.
@@ -487,17 +491,17 @@ func (m *Machine) AddStorageCtl(name string, ctl StorageController) error {
 	}
 	args = append(args, "--hostiocache", bool2string(ctl.HostIOCache))
 	args = append(args, "--bootable", bool2string(ctl.Bootable))
-	return Manage().run(args...)
+	return manage.run(args...)
 }
 
 // DelStorageCtl deletes the storage controller with the given name.
 func (m *Machine) DelStorageCtl(name string) error {
-	return Manage().run("storagectl", m.Name, "--name", name, "--remove")
+	return manage.run("storagectl", m.Name, "--name", name, "--remove")
 }
 
 // AttachStorage attaches a storage medium to the named storage controller.
 func (m *Machine) AttachStorage(ctlName string, medium StorageMedium) error {
-	return Manage().run("storageattach", m.Name, "--storagectl", ctlName,
+	return manage.run("storageattach", m.Name, "--storagectl", ctlName,
 		"--port", fmt.Sprintf("%d", medium.Port),
 		"--device", fmt.Sprintf("%d", medium.Device),
 		"--type", string(medium.DriveType),
@@ -507,12 +511,12 @@ func (m *Machine) AttachStorage(ctlName string, medium StorageMedium) error {
 
 // SetExtraData attaches custom string to the VM.
 func (m *Machine) SetExtraData(key, val string) error {
-	return Manage().run("setextradata", m.Name, key, val)
+	return manage.run("setextradata", m.Name, key, val)
 }
 
 // GetExtraData retrieves custom string from the VM.
 func (m *Machine) GetExtraData(key string) (*string, error) {
-	value, err := Manage().runOut("getextradata", m.Name, key)
+	value, err := manage.runOut("getextradata", m.Name, key)
 	if err != nil {
 		return nil, err
 	}
@@ -528,30 +532,30 @@ func (m *Machine) GetExtraData(key string) (*string, error) {
 
 // DeleteExtraData removes custom string from the VM.
 func (m *Machine) DeleteExtraData(key string) error {
-	return Manage().run("setextradata", m.Name, key)
+	return manage.run("setextradata", m.Name, key)
 }
 
 // ListSnapshot
 func (m *Machine) ListSnapshot(name string) error {
-	return Manage().run("snapshot", m.Name, "list")
+	return manage.run("snapshot", m.Name, "list")
 }
 
 // TakeSnapshot
 func (m *Machine) TakeSnapshot(name string) error {
-	return Manage().run("snapshot", m.Name, "take", name)
+	return manage.run("snapshot", m.Name, "take", name)
 }
 
 // DeleteSnapshot
 func (m *Machine) DeleteSnapshot(name string) error {
-	return Manage().run("snapshot", m.Name, "delete", name)
+	return manage.run("snapshot", m.Name, "delete", name)
 }
 
 // RestoreSnapshot
 func (m *Machine) RestoreSnapshot(name string) error {
-	return Manage().run("snapshot", m.Name, "restore", name)
+	return manage.run("snapshot", m.Name, "restore", name)
 }
 
 // RestoreCurrentSnapshot
 func (m *Machine) RestoreCurrentSnapshot(name string) error {
-	return Manage().run("snapshot", m.Name, "restorecurrent")
+	return manage.run("snapshot", m.Name, "restorecurrent")
 }
