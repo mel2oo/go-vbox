@@ -3,6 +3,7 @@ package vbox
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"strings"
@@ -20,14 +21,27 @@ type sshcmd struct {
 }
 
 func NewSSHCmd(user, password, host string, port int) (Command, error) {
+	return newSSHCmd(user, []ssh.AuthMethod{ssh.Password(password)}, host, port)
+}
+
+func NewSSHCmdWithPrivateKey(user, privateKeyFile, host string, port int) (Command, error) {
+	key, err := ioutil.ReadFile(privateKeyFile)
+	if err != nil {
+		return nil, err
+	}
+	signer, err := ssh.ParsePrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return newSSHCmd(user, []ssh.AuthMethod{ssh.PublicKeys(signer)}, host, port)
+}
+
+func newSSHCmd(user string, auth []ssh.AuthMethod, host string, port int) (Command, error) {
 	var (
-		auth         []ssh.AuthMethod
 		addr         string
 		clientConfig *ssh.ClientConfig
 	)
-	// get auth method
-	auth = make([]ssh.AuthMethod, 0)
-	auth = append(auth, ssh.Password(password))
 
 	clientConfig = &ssh.ClientConfig{
 		User:    user,
