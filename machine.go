@@ -230,6 +230,14 @@ func (m *Machine) Delete() error {
 	return manage.run("unregistervm", m.Name, "--delete")
 }
 
+func (m *Machine) ReDefine() error {
+	if err := manage.run("unregistervm", m.Name); err != nil {
+		return err
+	}
+
+	return manage.run("registervm", m.CfgFile)
+}
+
 var mutex sync.Mutex
 
 // ListMachines lists all registered machines.

@@ -125,8 +125,8 @@ func (s *sshcmd) run(args ...string) error {
 			return err
 		}
 		return ErrRunCmdTimeOut
-
 	}
+
 	return err
 }
 
