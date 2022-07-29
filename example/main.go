@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/mel2oo/go-vbox"
 )
 
 func main() {
-	if _, err := vbox.NewSSHCmd("root", "Dbapp@2121", "10.20.152.15", 22); err != nil {
+	if _, err := vbox.NewSSHCmd("root", "Dbapp@2121", "10.20.152.15", 22, time.Second*10); err != nil {
 		return
 	}
 

@@ -2,6 +2,7 @@ package vbox
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -12,19 +13,23 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+var ErrRunCmdTimeOut = errors.New("run cmd timeout")
+
 type sshcmd struct {
-	client  *ssh.Client
-	program string
-	sudoer  bool
-	sudo    bool
-	guest   bool
+	client       *ssh.Client
+	program      string
+	sudoer       bool
+	sudo         bool
+	guest        bool
+	runTimeout   time.Duration
+	runTimeouter *time.Timer
 }
 
-func NewSSHCmd(user, password, host string, port int) (Command, error) {
-	return newSSHCmd(user, []ssh.AuthMethod{ssh.Password(password)}, host, port)
+func NewSSHCmd(user, password, host string, port int, runTimeout time.Duration) (Command, error) {
+	return newSSHCmd(user, []ssh.AuthMethod{ssh.Password(password)}, host, port, runTimeout)
 }
 
-func NewSSHCmdWithPrivateKey(user, privateKeyFile, host string, port int) (Command, error) {
+func NewSSHCmdWithPrivateKey(user, privateKeyFile, host string, port int, runTimeout time.Duration) (Command, error) {
 	key, err := ioutil.ReadFile(privateKeyFile)
 	if err != nil {
 		return nil, err
@@ -34,10 +39,10 @@ func NewSSHCmdWithPrivateKey(user, privateKeyFile, host string, port int) (Comma
 		return nil, err
 	}
 
-	return newSSHCmd(user, []ssh.AuthMethod{ssh.PublicKeys(signer)}, host, port)
+	return newSSHCmd(user, []ssh.AuthMethod{ssh.PublicKeys(signer)}, host, port, runTimeout)
 }
 
-func newSSHCmd(user string, auth []ssh.AuthMethod, host string, port int) (Command, error) {
+func newSSHCmd(user string, auth []ssh.AuthMethod, host string, port int, runTimeout time.Duration) (Command, error) {
 	var (
 		addr         string
 		clientConfig *ssh.ClientConfig
@@ -65,7 +70,11 @@ func newSSHCmd(user string, auth []ssh.AuthMethod, host string, port int) (Comma
 		program: "VBoxManage",
 		sudoer:  true,
 		sudo:    true,
-		guest:   false}
+		guest:   false,
+
+		runTimeout:   runTimeout,
+		runTimeouter: time.NewTimer(runTimeout),
+	}
 
 	return manage, nil
 }
@@ -98,7 +107,27 @@ func (s *sshcmd) run(args ...string) error {
 	}
 
 	cmdline := fmt.Sprintf("%s %s", s.program, strings.Join(args, " "))
-	return session.Run(cmdline)
+	if err = session.Start(cmdline); err != nil {
+		return err
+	}
+	finished := make(chan struct{}, 1)
+	s.runTimeouter.Reset(s.runTimeout)
+	go func() {
+		err = session.Wait()
+		finished <- struct{}{}
+	}()
+
+	select {
+	case <-finished:
+	case <-s.runTimeouter.C:
+		err = session.Close()
+		if err != nil {
+			return err
+		}
+		return ErrRunCmdTimeOut
+
+	}
+	return err
 }
 
 func (s *sshcmd) runOut(args ...string) (string, error) {
