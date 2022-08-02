@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -16,13 +17,13 @@ import (
 var ErrRunCmdTimeOut = errors.New("run cmd timeout")
 
 type sshcmd struct {
-	client       *ssh.Client
-	program      string
-	sudoer       bool
-	sudo         bool
-	guest        bool
-	runTimeout   time.Duration
-	runTimeouter *time.Timer
+	client     *ssh.Client
+	program    string
+	sudoer     bool
+	sudo       bool
+	guest      bool
+	runTimeout time.Duration
+	timerPool  sync.Pool
 }
 
 func NewSSHCmd(user, password, host string, port int, runTimeout time.Duration) (Command, error) {
@@ -72,8 +73,10 @@ func newSSHCmd(user string, auth []ssh.AuthMethod, host string, port int, runTim
 		sudo:    true,
 		guest:   false,
 
-		runTimeout:   runTimeout,
-		runTimeouter: time.NewTimer(runTimeout),
+		runTimeout: runTimeout,
+		timerPool: sync.Pool{New: func() interface{} {
+			return time.NewTimer(runTimeout)
+		}},
 	}
 
 	return manage, nil
@@ -106,12 +109,17 @@ func (s *sshcmd) run(args ...string) error {
 		session.Stderr = os.Stderr
 	}
 
+	finished := make(chan struct{}, 1)
 	cmdline := fmt.Sprintf("%s %s", s.program, strings.Join(args, " "))
 	if err = session.Start(cmdline); err != nil {
 		return err
 	}
-	finished := make(chan struct{}, 1)
-	s.runTimeouter.Reset(s.runTimeout)
+	timer := s.timerPool.Get().(*time.Timer)
+	timer.Reset(s.runTimeout)
+	defer func() {
+		s.timerPool.Put(timer)
+	}()
+
 	go func() {
 		err = session.Wait()
 		finished <- struct{}{}
@@ -119,11 +127,7 @@ func (s *sshcmd) run(args ...string) error {
 
 	select {
 	case <-finished:
-	case <-s.runTimeouter.C:
-		err = session.Close()
-		if err != nil {
-			return err
-		}
+	case <-timer.C:
 		return ErrRunCmdTimeOut
 	}
 
