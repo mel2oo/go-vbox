@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -23,7 +22,6 @@ type sshcmd struct {
 	sudo       bool
 	guest      bool
 	runTimeout time.Duration
-	timerPool  sync.Pool
 }
 
 func NewSSHCmd(user, password, host string, port int, runTimeout time.Duration) (Command, error) {
@@ -74,9 +72,6 @@ func newSSHCmd(user string, auth []ssh.AuthMethod, host string, port int, runTim
 		guest:   false,
 
 		runTimeout: runTimeout,
-		timerPool: sync.Pool{New: func() interface{} {
-			return time.NewTimer(runTimeout)
-		}},
 	}
 
 	return manage, nil
@@ -114,12 +109,6 @@ func (s *sshcmd) run(args ...string) error {
 	if err = session.Start(cmdline); err != nil {
 		return err
 	}
-	timer := s.timerPool.Get().(*time.Timer)
-	timer.Reset(s.runTimeout)
-	defer func() {
-		s.timerPool.Put(timer)
-	}()
-
 	go func() {
 		err = session.Wait()
 		finished <- struct{}{}
@@ -127,7 +116,7 @@ func (s *sshcmd) run(args ...string) error {
 
 	select {
 	case <-finished:
-	case <-timer.C:
+	case <-time.After(s.runTimeout):
 		return ErrRunCmdTimeOut
 	}
 
