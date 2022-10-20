@@ -582,3 +582,7 @@ func (m *Machine) BindCpu(cpuset string) error {
 
 	return nil
 }
+
+func (m *Machine) SetLinkstate(nic int, onoff string) error {
+	return manage.run("controlvm", m.Name, fmt.Sprintf("setlinkstate%d", nic), onoff)
+}
