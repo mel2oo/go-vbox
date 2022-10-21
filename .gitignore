@@ -15,3 +15,5 @@
 # vendor/
 id_rsa
 vbssh_test.go
+
+old/
