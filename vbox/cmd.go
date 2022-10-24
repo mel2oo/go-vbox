@@ -1,4 +1,4 @@
-package cmd
+package vbox
 
 import (
 	"bytes"
@@ -6,15 +6,71 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 )
 
-var ErrSshTimeout = errors.New("ssh cmd timeout")
+type Command interface {
+	Run(name string, args ...string) error
+	RunOutput(name string, args ...string) (string, error)
+}
 
+// local commandline
+type comcmd struct {
+	mutex *sync.Mutex
+}
+
+func NewCmd() (Command, error) {
+	return &comcmd{mutex: new(sync.Mutex)}, nil
+}
+
+func (c *comcmd) Run(name string, args ...string) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	var (
+		stderr bytes.Buffer
+	)
+
+	cmd := exec.Command(name, args...)
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if len(stderr.String()) > 0 {
+		return errors.New(stderr.String())
+	}
+
+	return err
+}
+
+func (c *comcmd) RunOutput(name string, args ...string) (string, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
+
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if len(stderr.String()) > 0 {
+		return stdout.String(), errors.New(stderr.String())
+	}
+
+	return stdout.String(), err
+}
+
+// ssh command line
 type sshcmd struct {
+	mutex   *sync.Mutex
 	client  *ssh.Client
 	timeout time.Duration
 }
@@ -27,6 +83,7 @@ func NewSSHCmd(user, password, host string, port int,
 	}
 
 	return &sshcmd{
+		mutex:   new(sync.Mutex),
 		client:  client,
 		timeout: timeout,
 	}, nil
@@ -66,18 +123,27 @@ func newClient(user string, auth []ssh.AuthMethod, host string, port int) (*ssh.
 }
 
 func (s *sshcmd) Run(name string, args ...string) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	var (
+		stderr bytes.Buffer
+		exit   = make(chan struct{}, 1)
+	)
+
 	session, err := s.client.NewSession()
 	if err != nil {
 		return err
 	}
 	defer session.Close()
 
+	session.Stderr = &stderr
+
 	if err := session.Start(
 		fmt.Sprintf("%s %s", name, strings.Join(args, " "))); err != nil {
 		return err
 	}
 
-	exit := make(chan struct{}, 1)
 	go func() {
 		session.Wait()
 		exit <- struct{}{}
@@ -86,13 +152,20 @@ func (s *sshcmd) Run(name string, args ...string) error {
 	select {
 	case <-exit:
 	case <-time.After(s.timeout):
-		return ErrSshTimeout
+		return ErrCommandTimeout
 	}
 
-	return nil
+	if len(stderr.String()) > 0 {
+		return errors.New(stderr.String())
+	}
+
+	return err
 }
 
-func (s *sshcmd) RunOutput(name string, args ...string) (string, string, error) {
+func (s *sshcmd) RunOutput(name string, args ...string) (string, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	var (
 		stdout bytes.Buffer
 		stderr bytes.Buffer
@@ -101,7 +174,7 @@ func (s *sshcmd) RunOutput(name string, args ...string) (string, string, error) 
 
 	session, err := s.client.NewSession()
 	if err != nil {
-		return stdout.String(), stderr.String(), err
+		return stdout.String(), err
 	}
 	defer session.Close()
 
@@ -117,8 +190,12 @@ func (s *sshcmd) RunOutput(name string, args ...string) (string, string, error) 
 	select {
 	case <-exit:
 	case <-time.After(s.timeout):
-		return stdout.String(), stderr.String(), ErrSshTimeout
+		return stdout.String(), ErrCommandTimeout
 	}
 
-	return stdout.String(), stderr.String(), err
+	if len(stderr.String()) > 0 {
+		return stdout.String(), errors.New(stderr.String())
+	}
+
+	return stdout.String(), err
 }

@@ -2,17 +2,17 @@ package main
 
 import (
 	"fmt"
-	"time"
 
-	"github.com/mel2oo/go-vbox"
+	"github.com/mel2oo/go-vbox/vbox"
 )
 
 func main() {
-	if _, err := vbox.NewSSHCmd("root", "Dbapp@2121", "10.20.152.15", 22, time.Second*10); err != nil {
+	mgr, err := vbox.NewManage()
+	if err != nil {
 		return
 	}
 
-	machines, err := vbox.ListMachines()
+	machines, err := mgr.ListMachines()
 	if err != nil {
 		return
 	}
