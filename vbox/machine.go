@@ -2,6 +2,7 @@ package vbox
 
 import (
 	"bufio"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -29,15 +30,16 @@ const (
 type Machine struct {
 	*Manage `json:"-"`
 
-	Name     string       `json:"name"`
-	UUID     string       `json:"uuid"`
-	OSType   string       `json:"ostype"`
-	Firmware string       `json:"firmware"`
-	CfgFile  string       `json:"cfgfile"`
-	CPUs     uint         `json:"cpus"`
-	Memory   uint         `json:"memory"`
-	VRAM     uint         `json:"vram"`
-	State    MachineState `json:"state"`
+	Name      string       `json:"name"`
+	UUID      string       `json:"uuid"`
+	OSType    string       `json:"ostype"`
+	Firmware  string       `json:"firmware"`
+	CfgFile   string       `json:"cfgfile"`
+	CPUs      uint         `json:"cpus"`
+	Memory    uint         `json:"memory"`
+	VRAM      uint         `json:"vram"`
+	State     MachineState `json:"state"`
+	Snapshots *Snapshots   `json:"snapshots"`
 }
 
 // cmd: vboxmanage list vms
@@ -129,6 +131,11 @@ func (m *Manage) GetMachine(id string) (*Machine, error) {
 		vm.VRAM = uint(vram)
 	}
 
+	snp, err := vm.ListSnapshot()
+	if err == nil {
+		vm.Snapshots = snp
+	}
+
 	return &vm, nil
 }
 
@@ -175,7 +182,7 @@ func (m *Machine) Resume() error {
 
 // VBoxManage controlvm < uuid | vmname > reset
 func (m *Machine) Reset() error {
-	return m.cmd.Run("controlvm", m.UUID, "reset")
+	return m.cmd.Run(m.bin, "controlvm", m.UUID, "reset")
 }
 
 // VBoxManage controlvm < uuid | vmname > poweroff
@@ -196,15 +203,125 @@ func (m *Machine) Save() error {
 }
 
 // VBoxManage controlvm < uuid | vmname > acpipowerbutton
-// VBoxManage controlvm < uuid | vmname > acpisleepbutton
-// VBoxManage controlvm < uuid | vmname > reboot
-// VBoxManage controlvm < uuid | vmname > shutdown [--force]
+func (m *Machine) AcpiPowerButton() error {
+	return m.cmd.Run(m.bin, "controlvm", m.UUID, "acpipowerbutton")
+}
 
-// VBoxManage snapshot <uuid|vmname>
-// VBoxManage snapshot <uuid|vmname> take <snapshot-name> [--description=description] [--live] [--uniquename Number,Timestamp,Space,Force]
-// VBoxManage snapshot <uuid|vmname> delete <snapshot-name>
-// VBoxManage snapshot <uuid|vmname> restore <snapshot-name>
-// VBoxManage snapshot <uuid|vmname> restorecurrent
-// VBoxManage snapshot <uuid|vmname> edit < snapshot-name | --current > [--description=description] [--name=new-name]
+// VBoxManage controlvm < uuid | vmname > acpisleepbutton
+func (m *Machine) AcpiSleepButton() error {
+	return m.cmd.Run(m.bin, "controlvm", m.UUID, "acpisleepbutton")
+}
+
+type Snapshots struct {
+	Chain   []*Snapshot
+	Current *Snapshot
+}
+
+type Snapshot struct {
+	Node string `json:"node"`
+	Name string `json:"name"`
+	UUID string `json:"uuid"`
+}
+
 // VBoxManage snapshot <uuid|vmname> list [[--details] | [--machinereadable]]
-// VBoxManage snapshot <uuid|vmname> showvminfo <snapshot-name>
+func (m *Machine) ListSnapshot() (*Snapshots, error) {
+	stdout, err := m.cmd.RunOutput(m.bin, "snapshot", m.UUID, "list", "--machinereadable")
+	if err != nil {
+		return nil, err
+	}
+
+	prop := make(map[string]string, 0)
+	scan := bufio.NewScanner(strings.NewReader(stdout))
+	for scan.Scan() {
+		res := reVMInfoLine.FindStringSubmatch(scan.Text())
+		if res == nil {
+			continue
+		}
+
+		var key, val string
+		for i := 1; i < len(res); i++ {
+			if len(res[i]) > 0 {
+				if len(key) == 0 {
+					key = res[i]
+					continue
+				}
+
+				if len(val) == 0 {
+					val = res[i]
+					break
+				}
+			}
+		}
+
+		prop[key] = val
+	}
+
+	if err := scan.Err(); err != nil {
+		return nil, err
+	}
+
+	snaps := &Snapshots{
+		Chain: make([]*Snapshot, 0),
+	}
+
+	if _, ok := prop["SnapshotName"]; ok {
+		snaps.Chain = append(snaps.Chain, &Snapshot{
+			Node: "SnapshotName",
+			Name: prop["SnapshotName"],
+			UUID: prop["SnapshotUUID"],
+		})
+	}
+
+	for i := 1; i < 10; i++ {
+		if _, ok := prop[fmt.Sprintf("SnapshotName-%d", i)]; !ok {
+			break
+		}
+
+		snaps.Chain = append(snaps.Chain, &Snapshot{
+			Node: fmt.Sprintf("SnapshotName-%d", i),
+			Name: prop[fmt.Sprintf("SnapshotName-%d", i)],
+			UUID: prop[fmt.Sprintf("SnapshotUUID-%d", i)],
+		})
+	}
+
+	if _, ok := prop["CurrentSnapshotName"]; ok {
+		snaps.Current = &Snapshot{
+			Node: prop["CurrentSnapshotNode"],
+			Name: prop["CurrentSnapshotName"],
+			UUID: prop["CurrentSnapshotUUID"],
+		}
+	}
+
+	return snaps, nil
+}
+
+// VBoxManage snapshot <uuid|vmname> take <snapshot-name> [--description=description] [--live] [--uniquename Number,Timestamp,Space,Force]
+func (m *Machine) TakeSnapshot(name string) error {
+	return m.cmd.Run(m.bin, "snapshot", m.UUID, "take", name)
+}
+
+// VBoxManage snapshot <uuid|vmname> delete <snapshot-name>
+func (m *Machine) DeleteSnapshot(name string) error {
+	return m.cmd.Run(m.bin, "snapshot", m.UUID, "delete", name)
+}
+
+// VBoxManage snapshot <uuid|vmname> restore <snapshot-name>
+func (m *Machine) RestoreSnapshot(name string) error {
+	return m.cmd.Run(m.bin, "snapshot", m.UUID, "restore", name)
+}
+
+// VBoxManage snapshot <uuid|vmname> restorecurrent
+func (m *Machine) RestoreCurrentSnapshot(name string) error {
+	return m.cmd.Run(m.bin, "snapshot", m.Name, "restorecurrent")
+}
+
+// BindCPU
+func (m *Machine) BindCpu(cpuset string) error {
+	pid, err := m.cmd.RunOutput("ps", "aux", "|", "grep", "VBoxHeadless",
+		"|", "grep", "-v", "\"grep\"", "|", "grep", m.Name, "|", "awk", "'{print $2}'")
+	if err != nil {
+		return err
+	}
+
+	return m.cmd.Run("taskset", "-apc", cpuset, strings.TrimSpace(pid), ">", "/dev/null")
+}
