@@ -5,12 +5,12 @@ import (
 )
 
 type VSnapshot struct {
-	*VboxManage
+	*VMachine
 	SnapshotId string
 }
 
 func (manager *VMachine) MachineGetSnapShot(snapname string) (*VSnapshot, error) {
-	request := vboxwebsrv.IMachinefindSnapshot{This: manager.managedObjectId, NameOrId: snapname}
+	request := vboxwebsrv.IMachinefindSnapshot{This: manager.MachineId, NameOrId: snapname}
 	response, err := manager.IMachinefindSnapshot(&request)
 	if err != nil {
 		return nil, err // TODO: Wrap the error
@@ -19,19 +19,13 @@ func (manager *VMachine) MachineGetSnapShot(snapname string) (*VSnapshot, error)
 }
 
 // 返回的是内部管理id 如果需要获取到对应的名字 需要再转换
-func (manager *VMachine) VboxGetMachines() ([]*VMachine, error) {
+func (manager *VSnapshot) SnapShotGetOnline() (bool, error) {
 
-	request := vboxwebsrv.IVirtualBoxgetMachines{This: manager.managedObjectId}
+	request := vboxwebsrv.ISnapshotgetOnline{This: manager.SnapshotId}
 
-	response, err := manager.IVirtualBoxgetMachines(&request)
+	response, err := manager.ISnapshotgetOnline(&request)
 	if err != nil {
-		return nil, err // TODO: Wrap the error
+		return false, err // TODO: Wrap the error
 	}
-
-	machines := make([]*VMachine, len(response.Returnval))
-	for i, machineid := range response.Returnval {
-		machines[i] = &VMachine{manager, machineid}
-	}
-
-	return machines, nil
+	return response.Returnval, nil
 }

@@ -4686,7 +4686,7 @@ type IMachinegetState struct {
 type IMachinegetStateResponse struct {
 	XMLName xml.Name `xml:"http://www.virtualbox.org/ IMachine_getStateResponse"`
 
-	Returnval *MachineState `xml:"returnval,omitempty"`
+	Returnval string `xml:"returnval,omitempty"`
 }
 
 type IMachinegetLastStateChange struct {
@@ -5341,9 +5341,9 @@ type IMachinesetVMProcessPriorityResponse struct {
 type IMachinelockMachine struct {
 	XMLName xml.Name `xml:"http://www.virtualbox.org/ IMachine_lockMachine"`
 
-	This     string    `xml:"_this,omitempty"`
-	Session  string    `xml:"session,omitempty"`
-	LockType *LockType `xml:"lockType,omitempty"`
+	This     string   `xml:"_this,omitempty"`
+	Session  string   `xml:"session,omitempty"`
+	LockType LockType `xml:"lockType,omitempty"`
 }
 
 type IMachinelockMachineResponse struct {

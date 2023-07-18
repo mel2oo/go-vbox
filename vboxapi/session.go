@@ -22,7 +22,7 @@ func (s *Session) LockMachine(m *Machine, l vboxwebsrv.LockType) error {
 	request := vboxwebsrv.IMachinelockMachine{
 		This:     m.managedObjectId,
 		Session:  s.managedObjectId,
-		LockType: &l,
+		LockType: l,
 	}
 	_, err := s.virtualbox.IMachinelockMachine(&request)
 	if err != nil {

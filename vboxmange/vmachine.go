@@ -69,87 +69,132 @@ func (manager *VMachine) MachineGetName() (string, error) {
 	return response.Returnval, nil
 }
 
-func (manager *VMachine) VmStart(vmname string) error {
-	vmstatus, err := manager.VmStatus(vmname)
+// return snapshot id
+func (manager *VMachine) MachineTakeSnap(snapname string, desc string, pause bool) (string, error) {
+	status, err := manager.MachineGetStatus()
+	switch status {
+	case string(vboxwebsrv.MachineStatePoweredOff):
+	case string(vboxwebsrv.MachineStateSaved):
+	case string(vboxwebsrv.MachineStateAborted):
+	case string(vboxwebsrv.MachineStateRunning):
+	case string(vboxwebsrv.MachineStatePaused):
+	default:
+		return "", fmt.Errorf("machine not is poweroff,current status is %s", status)
+	}
+
+	request := vboxwebsrv.IMachinetakeSnapshot{This: manager.MachineId, Name: snapname, Description: desc, Pause: pause}
+
+	response, err := manager.IMachinetakeSnapshot(&request)
+	if err != nil {
+		return "", err // TODO: Wrap the error
+	}
+	progress := Progress{manager.VboxManage, response.Returnval}
+	err = progress.ProgressWaitForCompletion(-1)
+	if err != nil {
+		return "", err
+	}
+
+	// TODO: See if we need to do anything with the response
+	return response.Id, nil
+}
+
+func (manager *VMachine) MachineDeleteSnap(snapname string) error {
+	snapid, err := manager.MachineGetSnapShot(snapname)
 	if err != nil {
 		return err
 	}
+
+	request := vboxwebsrv.IMachinedeleteSnapshot{This: manager.MachineId, Id: snapid.SnapshotId}
+	response, err := manager.IMachinedeleteSnapshot(&request)
+	if err != nil {
+		return err // TODO: Wrap the error
+	}
+
+	progress := Progress{manager.VboxManage, response.Returnval}
+	err = progress.ProgressWaitForCompletion(-1)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (manager *VMachine) MachineSnapRestoreSnap(snapname string) error {
+	snapid, err := manager.MachineGetSnapShot(snapname)
+	if err != nil {
+		return err
+	}
+	request := vboxwebsrv.IMachinerestoreSnapshot{This: manager.MachineId, Snapshot: snapid.SnapshotId}
+	response, err := manager.IMachinerestoreSnapshot(&request)
+	if err != nil {
+		return err // TODO: Wrap the error
+	}
+	progress := Progress{manager.VboxManage, response.Returnval}
+	err = progress.ProgressWaitForCompletion(-1)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (manager *VMachine) MachineLock() error {
+	// This     string    `xml:"_this,omitempty"`
+	// Session  string    `xml:"session,omitempty"`
+	// LockType *LockType `xml:"lockType,omitempty"`
+	manager.VboxUnlockMachine()
+	// lockType := vboxwebsrv.LockTypeShared
+	request := vboxwebsrv.IMachinelockMachine{This: manager.MachineId, Session: manager.SessionId, LockType: vboxwebsrv.LockTypeVM}
+	_, err := manager.IMachinelockMachine(&request)
+	if err != nil {
+		return err // TODO: Wrap the error
+	}
+	// TODO: See if we need to do anything with the response
+	return nil
+}
+
+func (manager *VMachine) VmStart() error {
+
+	vmstatus, err := manager.MachineGetStatus()
+
+	switch vmstatus {
+	case string(vboxwebsrv.MachineStateSaved):
+	case string(vboxwebsrv.MachineStatePoweredOff):
+		break
+	default:
+		return fmt.Errorf("machine not is poweroff,current status is %s", vmstatus)
+	}
+
+	err = manager.MachineLock()
+	if err != nil {
+		return err
+	}
+	defer manager.VboxUnlockMachine()
+	VmConsole, err := manager.GetConsole()
+	if err != nil {
+		return err
+	}
+	return VmConsole.PowerUp()
+
+}
+func (manager *VMachine) VmStop() error {
+
+	vmstatus, err := manager.MachineGetStatus()
+
 	switch vmstatus {
 	case string(vboxwebsrv.MachineStatePoweredOff):
 		break
 	default:
 		return fmt.Errorf("machine not is poweroff,current status is %s", vmstatus)
 	}
-	machineid, err := manager.GetMachine(vmname)
+
+	err = manager.MachineLock()
 	if err != nil {
 		return err
 	}
-	request := vboxwebsrv.IConsolepowerUp{This: machineid}
-	response, err := manager.IConsolepowerUp(&request)
-	if err != nil {
-		return err // TODO: Wrap the error
-	}
-	waitrequest := vboxwebsrv.IProgresswaitForCompletion{This: response.Returnval, Timeout: -1}
-
-	_, err = manager.IProgresswaitForCompletion(&waitrequest)
-	if err != nil {
-		return err // TODO: Wrap the error
-	}
-	// TODO: See if we need to do anything with the response
-	return nil
-
-}
-func (manager *VMachine) VmStop(vmname string) error {
-	vmstatus, err := manager.VmStatus(vmname)
+	defer manager.VboxUnlockMachine()
+	VmConsole, err := manager.GetConsole()
 	if err != nil {
 		return err
 	}
-	switch vmstatus {
-	case string(vboxwebsrv.MachineStateRunning):
-		break
-	default:
-		return fmt.Errorf("machine not is running,current status is %s", vmstatus)
-	}
-	machineid, err := manager.GetMachine(vmname)
-	if err != nil {
-		return err
-	}
-	request := vboxwebsrv.IConsolepowerDown{This: machineid}
-	response, err := manager.IConsolepowerDown(&request)
-	if err != nil {
-		return err // TODO: Wrap the error
-	}
-	waitrequest := vboxwebsrv.IProgresswaitForCompletion{This: response.Returnval, Timeout: -1}
+	return VmConsole.PowerDown()
 
-	_, err = manager.IProgresswaitForCompletion(&waitrequest)
-	if err != nil {
-		return err // TODO: Wrap the error
-	}
-	// TODO: See if we need to do anything with the response
-	return nil
-
-}
-
-func (manager *VMachine) VmTakeSnap(snapname string,desc string,pause bool) (string, error) {
-	status, err := manager.MachineGetStatus()
-	switch status{
-		case string(vboxwebsrv.MachineStateRunning):
-	}
-
-	request := vboxwebsrv.IMachinegetName{This: vm_manager_id}
-
-	response, err := manager.IMachinegetName(&request)
-	if err != nil {
-		return "", err // TODO: Wrap the error
-	}
-	// TODO: See if we need to do anything with the response
-	return response.Returnval, nil
-	return "", nil
-}
-func (manager *VMachine) VmDeleteSnap(vmname string) (string, error) {
-
-	return "", nil
-}
-func (manager *VMachine) VmSnapRestoreSnap(vmname string) (string, error) {
-	return "", nil
 }

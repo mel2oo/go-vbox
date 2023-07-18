@@ -1,6 +1,8 @@
 package vboxmange
 
 import (
+	"sync"
+
 	"github.com/mel2oo/go-vbox/vboxwebsrv"
 )
 
@@ -9,7 +11,7 @@ type VboxManage struct {
 	managedObjectId string                //登录后的管理id
 	SessionId       string                //登录后的管理id
 	basicAuth       *vboxwebsrv.BasicAuth //需要认证时使用
-
+	LockConsole     sync.Mutex
 }
 
 func NewManage(username, password, url string, tls bool) *VboxManage {
@@ -58,7 +60,7 @@ func (manager *VboxManage) VboxCreateSession() error {
 		return err
 	}
 	manager.SessionId = response.Returnval
-
+	return nil
 }
 
 //Unlocks a machine that was previously locked for the current session.
@@ -74,3 +76,28 @@ func (manager *VboxManage) VboxUnlockMachine() error {
 	_ = response
 	return err
 }
+
+func (manager *VboxManage) Release(managedObjectId string) error {
+	request := vboxwebsrv.IManagedObjectRefrelease{This: managedObjectId}
+
+	_, err := manager.IManagedObjectRefrelease(&request)
+	return err
+}
+
+func (manager *VboxManage) VboxError(errorId string) (string, error) {
+
+	request := vboxwebsrv.IVirtualBoxErrorInfogetText{This: errorId}
+
+	response, err := manager.IVirtualBoxErrorInfogetText(&request)
+	if err != nil {
+		return "", err
+	}
+	return response.Returnval, nil
+}
+
+// func (manager *VboxManage) Vbox(managedObjectId string) error {
+// 	request := vboxwebsrv.IManagedObjectRefrelease{This: managedObjectId}
+
+// 	_, err := manager.IManagedObjectRefrelease(&request)
+// 	return err
+// }
