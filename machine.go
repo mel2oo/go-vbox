@@ -569,7 +569,7 @@ func (m *Machine) RestoreCurrentSnapshot(name string) error {
 }
 
 func (m *Machine) BindCpu(cpuset string) error {
-	pid, err := manage.rrunOut(fmt.Sprintf("ps aux | grep VBoxHeadless | grep -v \"grep\" | grep \" %s\" | awk '{print $2}'", m.Name))
+	pid, err := manage.rrunOut(fmt.Sprintf("ps aux | grep VBoxHeadless | grep -v \"grep\" | grep \" %s \" | awk '{print $2}'", m.Name))
 	if err != nil {
 		return err
 	}
